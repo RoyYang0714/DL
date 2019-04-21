@@ -1,110 +1,89 @@
-import os
-import sys
 import pandas as pd
 import numpy as np 
-import matplotlib.pyplot as plt
-import seaborn as sns
-sns.set()
-os.system("python source/spilt1.py")
+import tensorflow as tf
+import sys
 sys.path.append('source')
-import prob1
-
-data = pd.read_csv('data/training.csv')
-data_t = pd.read_csv('data/test.csv')
-data_x = data.drop(['ID', 'G1', 'G2', 'G3', 'cat_mat', 'cat_por'], axis=1)
-data_x_t = data_t.drop(['ID', 'G1', 'G2', 'G3', 'cat_mat', 'cat_por'], axis=1)
-data_y = data['G3']
-data_y_t = data_t['G3']
-
-X = data_x.values
-X_t = data_x_t.values
-Y = data_y.values
-Y_t = data_y_t.values
-Y = Y.reshape((800, 1))
-Y_t = Y_t.reshape((200, 1))
-
-RMSE1, p1 = prob1.lr_nb_ps(X, Y, X_t, Y_t)
-RMSE2, p2 = prob1.lr_nb(X, Y, X_t, Y_t)
-RMSE3, p3 = prob1.lr(X, Y, X_t, Y_t)
-RMSE4, p4 = prob1.lr_bay(X, Y, X_t, Y_t)
-
-plt.plot(Y_t, color='blue', label='ground truth')
-plt.plot(p1, color='orange', label='(%.2f) Linear Regression' %RMSE1)
-plt.plot(p2, color='green', label='(%.2f) Linear Regression (reg)' %RMSE2)
-plt.plot(p3, color='red', label='(%.2f)Linear Regression (r/b)' %RMSE3)
-plt.plot(p4, color='purple', label='(%.2f) Bayseian Linear Regression' %RMSE4)
-plt.legend()
-plt.title('Figure 1: Regression result comparison.')
-plt.ylabel('Values')
-plt.xlabel('Sample Index')
-plt.show()
 
 
-os.system("python source/spilt2.py")
-import prob2
+def compute_accuracy(v_xs, v_ys):
+	global prediction
 
-data = pd.read_csv('data/training.csv')
-data_t = pd.read_csv('data/test.csv')
-data_x = data.drop(['ID', 'G1', 'G2', 'G3', 'cat_mat', 'cat_por', 'label'], axis=1)
-data_x_t = data_t.drop(['ID', 'G1', 'G2', 'G3', 'cat_mat', 'cat_por', 'label'], axis=1)
-data_y = data['label']
-data_y_t = data_t['label']
+	y_pre = sess.run(prediction, feed_dict={xs:v_xs})
+	correct_prediction = tf.equal(tf.argmax(y_pre, 1), tf.argmax(v_ys, 1))
+	accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+	result = sess.run(accuracy, feed_dict={xs:X_valid, ys:Y_valid})
 
-X = data_x.values
-X_t = data_x_t.values
-Y = data_y.values
-Y_t = data_y_t.values
-Y = Y.reshape((800, 1))
-Y_t = Y_t.reshape((200, 1))
+	return result
 
-p1_1 = prob2.lr(X, Y, X_t, Y_t, 0.1)
-p1_2 = prob2.lr(X, Y, X_t, Y_t, 0.5)
-p1_3 = prob2.lr(X, Y, X_t, Y_t, 0.9)
+### data processing and loading ###
 
-p2_1 = prob2.lgr(X, Y, X_t, Y_t, 0.1)
-p2_2 = prob2.lgr(X, Y, X_t, Y_t, 0.5)
-p2_3 = prob2.lgr(X, Y, X_t, Y_t, 0.9)
+import data
+data_train, data_valid = data.spilt()
 
-con = prob2.con_mat(p1_2, Y_t)
-sns.heatmap(con, linewidths=.5, annot=True, cbar=False, yticklabels=['predict = 0', 'predict = 1'])
-plt.show()
+x_train = data_train.drop(['dws', 'ups', 'sit', 'std', 'wlk', 'jog'], axis=1)
+x_valid = data_valid.drop(['dws', 'ups', 'sit', 'std', 'wlk', 'jog'], axis=1)
+y_train = data_train.loc[:, ['dws', 'ups', 'sit', 'std', 'wlk', 'jog']]
+y_valid = data_valid.loc[:, ['dws', 'ups', 'sit', 'std', 'wlk', 'jog']]
 
-con = prob2.con_mat(p2_2, Y_t)
-sns.heatmap(con, linewidths=.5, annot=True, cbar=False, yticklabels=['predict = 0', 'predict = 1'])
-plt.show()
+X_train = x_train.values
+X_valid = x_valid.values
+Y_train = y_train.values
+Y_valid = y_valid.values
 
-con = prob2.con_mat(p1_3, Y_t)
-sns.heatmap(con, linewidths=.5, annot=True, cbar=False, yticklabels=['predict = 0', 'predict = 1'])
-plt.show()
+X_train = X_train.astype(np.float32)
+X_valid = X_valid.astype(np.float32)
+Y_train = Y_train.astype(np.float32)
+Y_valid = Y_valid.astype(np.float32)
 
-con = prob2.con_mat(p2_3, Y_t)
-sns.heatmap(con, linewidths=.5, annot=True, cbar=False, yticklabels=['predict = 0', 'predict = 1'])
-plt.show()
+### HYPERPARAMETERS ###
+epochs = 1500
+mini_batch_size = 32
+learning_rate = 0.0001
 
-import prob3
+### construct nn ###
+import layer
 
-data = pd.read_csv('data/training.csv')
-data_t = pd.read_csv('data/test_no_G3.csv')
-data_x = data.drop(['ID', 'G1', 'G2', 'G3', 'cat_mat', 'cat_por', 'label'], axis=1)
-data_x_t = data_t.drop(['ID', 'G1', 'G2', 'cat_mat', 'cat_por'], axis=1)
-data_y = data['G3']
+with tf.name_scope('inputs'):
+	xs = tf.placeholder(tf.float32, [None, 68], name = 'x_train')
+	ys = tf.placeholder(tf.float32, [None, 6],  name = 'y_train')
+ 
+l1 = layer.add_layer(xs, 68, 30, n_layer = '1', activation_function=tf.nn.relu)
+l2 = layer.add_layer(l1, 30, 15, n_layer = '2', activation_function=tf.nn.relu)
+prediction = layer.add_layer(l2, 15, 6, n_layer = '3', activation_function=tf.nn.softmax)
 
-X = data_x.values
-X_t = data_x_t.values
-Y = data_y.values
-Y = Y.reshape((800, 1))
+with tf.name_scope('loss'):
+	loss = tf.multiply(tf.reduce_mean(tf.multiply(ys, tf.log(prediction))), -1.)
+	tf.summary.scalar('loss', loss)
 
-prob3.p1(X, Y, X_t)
-				
-data = pd.read_csv('data/training.csv')
-data_t = pd.read_csv('data/test_no_G3.csv')
-data_x = data.drop(['ID', 'G1', 'G2', 'G3', 'cat_mat', 'cat_por', 'label'], axis=1)
-data_x_t = data_t.drop(['ID', 'G1', 'G2', 'cat_mat', 'cat_por'], axis=1)
-data_y = data['label']
+with tf.name_scope('train'):
+	train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
-X = data_x.values
-X_t = data_x_t.values
-Y = data_y.values
-Y = Y.reshape((800, 1))
+with tf.name_scope('accuracy'):
+	correct_prediction = tf.equal(tf.argmax(ys, 1), tf.argmax(prediction, 1))
+	accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+	tf.summary.scalar('accuracy', accuracy)
 
-prob3.p2(X, Y, X_t)											
+init = tf.initialize_all_variables()
+
+### activate tensorflow ###
+with tf.Session() as sess:
+	sess.run(init)
+
+	merged = tf.summary.merge_all()
+	writer = tf.summary.FileWriter("logs/", sess.graph)	
+
+	for epoch in range(1500):
+		'''
+		x = X_train[np.random.randint(0,X_train.shape[0],mini_batch_size)]
+		y = Y_train[np.random.randint(0,X_train.shape[0],mini_batch_size)]
+		sess.run(train_step, {xs:x, ys:y})
+		'''
+		for i in range(mini_batch_size):
+			x = X_train[(i+epoch*mini_batch_size)%4406].reshape((1,68))
+			y = Y_train[(i+epoch*mini_batch_size)%4406].reshape((1,6))
+			sess.run(train_step, {xs:x, ys:y})
+		
+
+		print('epoch:', epoch, 'accuracy:', compute_accuracy(X_valid, Y_valid), 'loss:', sess.run(loss, {xs:x, ys:y}))						
+		result = sess.run(merged, feed_dict={xs:X_train, ys:Y_train})
+		writer.add_summary(result, epoch)
