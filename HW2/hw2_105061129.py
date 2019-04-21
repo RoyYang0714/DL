@@ -1,27 +1,17 @@
 import pandas as pd
 import numpy as np 
 import tensorflow as tf
+import sklearn as sk
+from sklearn.metrics import confusion_matrix
 import sys
 sys.path.append('source')
 
-
-def compute_accuracy(v_xs, v_ys):
-	global prediction
-
-	y_pre = sess.run(prediction, feed_dict={xs:v_xs})
-	correct_prediction = tf.equal(tf.argmax(y_pre, 1), tf.argmax(v_ys, 1))
-	accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-	result = sess.run(accuracy, feed_dict={xs:X_valid, ys:Y_valid})
-
-	return result
-
 ### data processing and loading ###
-
 import data
 data_train, data_valid = data.spilt()
 
-x_train = data_train.drop(['dws', 'ups', 'sit', 'std', 'wlk', 'jog'], axis=1)
-x_valid = data_valid.drop(['dws', 'ups', 'sit', 'std', 'wlk', 'jog'], axis=1)
+x_train = data_train.drop(['Activities_Types', 'dws', 'ups', 'sit', 'std', 'wlk', 'jog'], axis=1)
+x_valid = data_valid.drop(['Activities_Types', 'dws', 'ups', 'sit', 'std', 'wlk', 'jog'], axis=1)
 y_train = data_train.loc[:, ['dws', 'ups', 'sit', 'std', 'wlk', 'jog']]
 y_valid = data_valid.loc[:, ['dws', 'ups', 'sit', 'std', 'wlk', 'jog']]
 
@@ -53,10 +43,12 @@ prediction = layer.add_layer(l2, 15, 6, n_layer = '3', activation_function=tf.nn
 
 with tf.name_scope('loss'):
 	loss = tf.multiply(tf.reduce_mean(tf.multiply(ys, tf.log(prediction))), -1.)
-	tf.summary.scalar('loss', loss)
+	tf.summary.scalar('train', loss)
 
 with tf.name_scope('train'):
 	train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+	#train_step = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+	#train_step = tf.train.AdagradOptimizer(learning_rate).minimize(loss)
 
 with tf.name_scope('accuracy'):
 	correct_prediction = tf.equal(tf.argmax(ys, 1), tf.argmax(prediction, 1))
@@ -70,20 +62,58 @@ with tf.Session() as sess:
 	sess.run(init)
 
 	merged = tf.summary.merge_all()
-	writer = tf.summary.FileWriter("logs/", sess.graph)	
+	train_writer = tf.summary.FileWriter("logs/train", sess.graph)
+	validate_writer = tf.summary.FileWriter("logs/validate")
 
-	for epoch in range(1500):
-		'''
-		x = X_train[np.random.randint(0,X_train.shape[0],mini_batch_size)]
-		y = Y_train[np.random.randint(0,X_train.shape[0],mini_batch_size)]
-		sess.run(train_step, {xs:x, ys:y})
-		'''
+	for epoch in range(epochs):
 		for i in range(mini_batch_size):
 			x = X_train[(i+epoch*mini_batch_size)%4406].reshape((1,68))
 			y = Y_train[(i+epoch*mini_batch_size)%4406].reshape((1,6))
 			sess.run(train_step, {xs:x, ys:y})
 		
-
-		print('epoch:', epoch, 'accuracy:', compute_accuracy(X_valid, Y_valid), 'loss:', sess.run(loss, {xs:x, ys:y}))						
+		print('epoch:', epoch, 'accuracy:', sess.run(accuracy, {xs:X_valid, ys:Y_valid}), 'loss:', sess.run(loss, {xs:X_valid, ys:Y_valid}))						
+		
 		result = sess.run(merged, feed_dict={xs:X_train, ys:Y_train})
-		writer.add_summary(result, epoch)
+		train_writer.add_summary(result, epoch)
+
+		result = sess.run(merged, feed_dict={xs:X_valid, ys:Y_valid})
+		validate_writer.add_summary(result, epoch)
+
+	y_p = tf.argmax(sess.run(prediction, feed_dict={xs:X_valid, ys:Y_valid}), 1)
+	y_p = sess.run(y_p)
+	y_true = np.argmax(Y_valid, 1)
+
+	print("micro-Precision", sk.metrics.precision_score(y_true, y_p, average=None))
+	print("macro-Precision", sk.metrics.precision_score(y_true, y_p, average='macro'))
+	print("micro-Recall", sk.metrics.recall_score(y_true, y_p, average=None))
+	print("macro-Recall", sk.metrics.recall_score(y_true, y_p, average='macro'))
+	print("micro-F1_score", sk.metrics.f1_score(y_true, y_p, average=None))
+	print("macro-F1_score", sk.metrics.f1_score(y_true, y_p, average='macro'))
+
+	data_test = pd.read_csv('data/Test_no_Ac.csv')
+
+	data_test = data_test.values
+	data_test = data_test.astype(np.float32)
+
+	p = tf.argmax(sess.run(prediction, feed_dict={xs:data_test}), 1) + 1
+	p = sess.run(p)
+
+	p = p.reshape((1378, 1))
+
+	i = np.arange(1,1379,1)
+	i = np.transpose(i).reshape((1378, 1))
+
+	p = np.c_[i, p]
+
+	df = pd.DataFrame({'Column1':p[:,0],'Column2':p[:,1]})
+	np.savetxt(r"105061129_answer.txt", df.values, fmt='%d	%d')
+
+### PCA ###
+import PCA
+
+PCA.plot(data_valid)
+
+### t-SNE ###
+import t_SNE
+
+t_SNE.plot(data_valid)

@@ -27,7 +27,7 @@ def spilt():
 	tmp[df.Activities_Types == 6] = 1.
 	df['jog'] = tmp.copy()
 
-	df = df.drop(['Activities_Types'], axis=1)
+	#df = df.drop(['Activities_Types'], axis=1)
 	data_train = df.sample(frac=0.8).reset_index(drop=True)
 	data_valid = df.sample(frac=0.2).reset_index(drop=True)
 
