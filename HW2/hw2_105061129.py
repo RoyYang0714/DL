@@ -28,7 +28,9 @@ Y_valid = Y_valid.astype(np.float32)
 ### HYPERPARAMETERS ###
 epochs = 1500
 mini_batch_size = 32
-learning_rate = 0.0001
+learning_rate1 = 0.001
+learning_rate2 = 0.2
+learning_rate3 = 0.1
 
 ### construct nn ###
 import layer
@@ -46,9 +48,9 @@ with tf.name_scope('loss'):
 	tf.summary.scalar('train', loss)
 
 with tf.name_scope('train'):
-	train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-	#train_step = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
-	#train_step = tf.train.AdagradOptimizer(learning_rate).minimize(loss)
+	train_step = tf.train.AdamOptimizer(learning_rate1).minimize(loss)
+	#train_step = tf.train.GradientDescentOptimizer(learning_rate2).minimize(loss)
+	#train_step = tf.train.AdagradOptimizer(learning_rate3).minimize(loss)
 
 with tf.name_scope('accuracy'):
 	correct_prediction = tf.equal(tf.argmax(ys, 1), tf.argmax(prediction, 1))
@@ -66,10 +68,18 @@ with tf.Session() as sess:
 	validate_writer = tf.summary.FileWriter("logs/validate")
 
 	for epoch in range(epochs):
+		flag = 0
+		x = np.zeros((1, 68))
+		y = np.zeros((1, 6))
 		for i in range(mini_batch_size):
-			x = X_train[(i+epoch*mini_batch_size)%4406].reshape((1,68))
-			y = Y_train[(i+epoch*mini_batch_size)%4406].reshape((1,6))
-			sess.run(train_step, {xs:x, ys:y})
+			if flag != 0:
+				x = X_train[(i+epoch*mini_batch_size)%4406].reshape((1,68))
+				y = Y_train[(i+epoch*mini_batch_size)%4406].reshape((1,6))
+				flag = 1
+			else:
+				x = np.r_[x, X_train[(i+epoch*mini_batch_size)%4406].reshape((1,68))]
+				y = np.r_[y, Y_train[(i+epoch*mini_batch_size)%4406].reshape((1,6))]
+		sess.run(train_step, {xs:x, ys:y})
 		
 		print('epoch:', epoch, 'accuracy:', sess.run(accuracy, {xs:X_valid, ys:Y_valid}), 'loss:', sess.run(loss, {xs:X_valid, ys:Y_valid}))						
 		
