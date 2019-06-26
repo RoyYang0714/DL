@@ -5,18 +5,15 @@ import os
 import pickle
 import copy
 import matplotlib.pyplot as plt
-
-def load_data(path):
-    input_file = os.path.join(path)
-    with open(input_file, 'r', encoding='utf-8') as f:
-        data = f.read()
-
-    return data
+from final_preprocessing import *
 
 def create_lookup_tables(text):
     CODES = {'<PAD>': 0, '<EOS>': 1, '<UNK>': 2, '<GO>': 3 }
 
-    vocab = set(text.split())
+    vocab = set()
+    for t in text:
+        vocab.update(list(t))
+
     vocab_to_int = copy.copy(CODES)
 
     for v_i, v in enumerate(vocab, len(CODES)):
@@ -26,17 +23,13 @@ def create_lookup_tables(text):
 
     return vocab_to_int, int_to_vocab
 
-def text_to_ids(source_text, target_text, source_vocab_to_int, target_vocab_to_int):
+def text_to_ids(source_sentences, target_sentences, source_vocab_to_int, target_vocab_to_int):
 
     source_text_id = []
     target_text_id = []
     
-    # make a list of sentences (extraction)
-    source_sentences = source_text.split("\n")
-    target_sentences = target_text.split("\n")
-    
-    max_source_sentence_length = max([len(sentence.split(" ")) for sentence in source_sentences])
-    max_target_sentence_length = max([len(sentence.split(" ")) for sentence in target_sentences])
+    max_source_sentence_length = max([len(sentence) for sentence in source_sentences])
+    max_target_sentence_length = max([len(sentence) for sentence in target_sentences])
     
     # iterating through each sentences (# of sentences in source&target is the same)
     for i in range(len(source_sentences)):
@@ -44,19 +37,15 @@ def text_to_ids(source_text, target_text, source_vocab_to_int, target_vocab_to_i
         source_sentence = source_sentences[i]
         target_sentence = target_sentences[i]
         
-        # make a list of tokens/words (extraction) from the chosen sentence
-        source_tokens = source_sentence.split(" ")
-        target_tokens = target_sentence.split(" ")
-        
         # empty list of converted words to index in the chosen sentence
         source_token_id = []
         target_token_id = []
         
-        for index, token in enumerate(source_tokens):
+        for index, token in enumerate(source_sentence):
             if (token != ""):
                 source_token_id.append(source_vocab_to_int[token])
         
-        for index, token in enumerate(target_tokens):
+        for index, token in enumerate(target_sentence):
             if (token != ""):
                 target_token_id.append(target_vocab_to_int[token])
                 
@@ -67,7 +56,7 @@ def text_to_ids(source_text, target_text, source_vocab_to_int, target_vocab_to_i
         # add each converted sentences in the final list
         source_text_id.append(source_token_id)
         target_text_id.append(target_token_id)
-    
+
     return source_text_id, target_text_id
 
 def enc_dec_model_inputs():
@@ -193,9 +182,7 @@ def get_batches(sources, targets, batch_size, source_pad_int, target_pad_int):
         yield pad_sources_batch, pad_targets_batch, pad_source_lengths, pad_targets_lengths
 
 def get_accuracy(target, logits):
-    """
-    Calculate accuracy
-    """
+
     max_seq = max(target.shape[1], logits.shape[1])
     if max_seq - target.shape[1]:
         target = np.pad(
@@ -210,19 +197,21 @@ def get_accuracy(target, logits):
 
     return np.mean(np.equal(target, logits))
 
-def save_params(params):
-    with open('params.p', 'wb') as out_file:
-        pickle.dump(params, out_file)
-
-def load_params():
-    with open('params.p', mode='rb') as in_file:
-        return pickle.load(in_file)
+def sentence_to_seq(sentence, vocab_to_int):
+    results = []
+    for word in sentence:
+        if word in vocab_to_int:
+            results.append(vocab_to_int[word])
+        else:
+            results.append(vocab_to_int['<UNK>'])
+            
+    return results
 
 ### hyperparameters ###
-display_step = 300
+display_step = 100
 
-epochs = 10
-batch_size = 128
+epochs = 3
+batch_size = 32
 
 rnn_size = 128
 num_layers = 3
@@ -230,16 +219,11 @@ num_layers = 3
 encoding_embedding_size = 200
 decoding_embedding_size = 200
 
-learning_rate = 0.001
+learning_rate = 1e-3
 keep_probability = 0.5
 
 ### data loading ###    
-source_text = load_data('en.txt')
-target_text = load_data('fr.txt')
-
-### data prpeocessing ###
-source_text = source_text.lower()
-target_text = target_text.lower()
+source_text, target_text = data_prepro()
 
 # create lookup tables
 source_vocab_to_int, source_int_to_vocab = create_lookup_tables(source_text)
@@ -284,13 +268,14 @@ train_target = target_int_text[batch_size:]
 valid_source = source_int_text[:batch_size]
 valid_target = target_int_text[:batch_size]
 
-valid_sources_batch, valid_targets_batch, valid_sources_lengths, valid_targets_lengths = next(get_batches(valid_source, valid_target, batch_size, source_vocab_to_int['<PAD>'], target_vocab_to_int['<PAD>']))                                                                                                  
-'''
-with tf.Session(graph=train_graph) as sess:
-    sess.run(tf.global_variables_initializer())
+tac = []
+vac = []
 
-    tac = []
-    vac = []
+valid_sources_batch, valid_targets_batch, valid_sources_lengths, valid_targets_lengths = next(get_batches(valid_source, valid_target, batch_size, source_vocab_to_int['<PAD>'], target_vocab_to_int['<PAD>']))                                                                                                  
+
+with tf.Session(graph=train_graph) as sess:
+    
+    sess.run(tf.global_variables_initializer())
 
     for epoch_i in range(epochs):
         for batch_i, (source_batch, target_batch, sources_lengths, targets_lengths) in enumerate(
@@ -320,63 +305,23 @@ with tf.Session(graph=train_graph) as sess:
                      target_sequence_length: valid_targets_lengths,
                      keep_prob: 1.0})
 
+                source_sentence = source_text[batch_i]
+                translate_sentence = sentence_to_seq(source_sentence, source_vocab_to_int)
+
+                translate_logits = sess.run(inference_logits, {input_data: [translate_sentence]*batch_size, target_sequence_length: [len(translate_sentence)]*batch_size, keep_prob: 1.0})[0]
+                print('Sources:', source_sentence)
+                print('Q3 pred: {}'.format("".join([target_int_to_vocab[i] for i in translate_logits])))
+                print('Q3 ansr:', target_text[batch_i])
+
                 train_acc = get_accuracy(target_batch, batch_train_logits)
                 valid_acc = get_accuracy(valid_targets_batch, batch_valid_logits)
 
                 print('Epoch {:>3} Batch {:>4}/{} - Train Accuracy: {:>6.4f}, Validation Accuracy: {:>6.4f}, Loss: {:>6.4f}'
                       .format(epoch_i, batch_i, len(source_int_text) // batch_size, train_acc, valid_acc, loss))
-        
-        tac.append(train_acc)
-        vac.append(valid_acc)
-
-	# Save Model
-    saver = tf.train.Saver()
-    saver.save(sess, 'checkpoints/dev')
-    print('Model Trained and Saved')
-    save_params('checkpoints/dev')
-'''
-def sentence_to_seq(sentence, vocab_to_int):
-    results = []
-    for word in sentence.split(" "):
-        if word in vocab_to_int:
-            results.append(vocab_to_int[word])
-        else:
-            results.append(vocab_to_int['<UNK>'])
             
-    return results
-   
-source_text = load_data('en.txt')
-source_text = source_text.lower()
-
-source_sentences = source_text.split("\n")
-
-translate_sentence = source_sentences[0]
-
-translate_sentence = sentence_to_seq(translate_sentence, source_vocab_to_int)
-
-load_path = load_params()
-loaded_graph = tf.Graph()
-
-with tf.Session(graph=loaded_graph) as sess:
-    # Load saved model
-    loader = tf.train.import_meta_graph(load_path + '.meta')
-    loader.restore(sess, load_path)
-
-    input_data = loaded_graph.get_tensor_by_name('input:0')
-    logits = loaded_graph.get_tensor_by_name('predictions:0')
-    target_sequence_length = loaded_graph.get_tensor_by_name('target_sequence_length:0')
-    keep_prob = loaded_graph.get_tensor_by_name('keep_prob:0')
-
-    translate_logits = sess.run(logits, {input_data: [translate_sentence]*batch_size, target_sequence_length: [len(translate_sentence)*2]*batch_size, keep_prob: 1.0})[0]
-
-print('Source(English)')
-print('  Word Indices:  {}'.format([i for i in translate_sentence]))
-print('  English Words: {}'.format([source_int_to_vocab[i] for i in translate_sentence]))
-
-print('\nTranslation(French)')
-print('  Word Indices: {}'.format([i for i in translate_logits]))
-print('  French Words: {}'.format(" ".join([target_int_to_vocab[i] for i in translate_logits]))) 
-
+                tac.append(train_acc)
+                vac.append(valid_acc)
+                
 ### plot learning curve ###
 plt.plot(tac, '--', color="#111111",  label="Training accuracy")
 plt.plot(vac, color="#111111", label="Validation accuracy")
@@ -385,39 +330,4 @@ plt.plot(vac, color="#111111", label="Validation accuracy")
 plt.title("Learning Curve")
 plt.xlabel("epochs"), plt.ylabel("Accuracy"), plt.legend(loc="best")
 plt.tight_layout()
-plt.show()
-
-source_text = load_data('test.txt')
-source_text = source_text.lower()
-
-source_sentences = source_text.split("\n")
-
-tmp = []
-
-load_path = load_params()
-loaded_graph = tf.Graph()
-
-with tf.Session(graph=loaded_graph) as sess:
-	
-	# Load saved model
-	loader = tf.train.import_meta_graph(load_path + '.meta')
-	loader.restore(sess, load_path)
-
-	input_data = loaded_graph.get_tensor_by_name('input:0')
-	logits = loaded_graph.get_tensor_by_name('predictions:0')
-	target_sequence_length = loaded_graph.get_tensor_by_name('target_sequence_length:0')
-	keep_prob = loaded_graph.get_tensor_by_name('keep_prob:0')
-
-	for i in range(len(source_sentences)-1):
-		
-		translate_sentence = source_sentences[i]
-
-		translate_sentence = sentence_to_seq(translate_sentence, source_vocab_to_int)
-
-		translate_logits = sess.run(logits, {input_data: [translate_sentence]*batch_size, target_sequence_length: [len(translate_sentence)*2]*batch_size, keep_prob: 1.0})[0]
-
-		tmp.append('{}'.format(" ".join([target_int_to_vocab[i] for i in translate_logits])))
-
-	tmp = np.asarray(tmp)
-
-	np.savetxt('test_105061129.txt', tmp, fmt="%s")
+plt.show()  
